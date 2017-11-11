@@ -1,121 +1,53 @@
 var canvas = document.getElementById('canvas');
+var canvas2 = document.getElementById('hidden');
 var video = document.getElementById('video');
 var gl = canvas.getContext('webgl');
+var hidden = canvas2.getContext('2d');
+hidden.width = 320;
+hidden.height = 240;
 canvas.width = innerWidth;
 canvas.height = innerHeight;
 
 let srcvertexShader = `
   attribute vec2 coordinates;
-  attribute vec2 velocity;
-  uniform float time;
-
-  uniform sampler2D cameraImage;
-
-  varying lowp vec2 coords;
-
-  vec2 computePixel(){
-    vec3 color;
-    vec2 midcoords = (coordinates+1.0)/2.0;
-    vec2 vertical = vec2(0.0,0.01);
-    vec2 horisontal = vec2(0.01,0.0);
-
-    vec3 mid = texture2D(cameraImage , midcoords).xyz;
-    vec3 left = texture2D(cameraImage , midcoords - horisontal ).xyz;
-    vec3 right = texture2D(cameraImage , midcoords + horisontal ).xyz;
-    vec3 up = texture2D(cameraImage , midcoords - vertical ).xyz;
-    vec3 down = texture2D(cameraImage , midcoords + vertical ).xyz;
-    
-    color = (left + right + up + down) / 3.0;
-    return color.xy;
-  }
 
   void main(){
-    vec2 pixel = computePixel();
-    vec2 speed = -1.0 * pixel * pixel * pixel;
-    vec2 moved =  coordinates + velocity * speed * mod (time + velocity.x, 0.2);
-    // vec2 moved =  coordinates + velocity * speed * time ;
-
-    if (moved.x > -1.0 && moved.x < 1.0 && moved.y > -1.0 && moved.y < 1.0){
-      coords = moved;
-    }
-    else{
-      coords = vec2(0.0,0.0);
-    }
-    gl_Position = vec4(moved,1.0,1.0);
+    gl_Position = vec4(coordinates,1.0,1.0);
     gl_PointSize = 1.0;
   }
 `
 let srcfragShader = `
- uniform sampler2D cameraImage;
-  varying lowp vec2 coords;
-  
   void main(void) {
-
-      gl_FragColor = texture2D(cameraImage, (coords + 1.0)/2.0);
-      gl_FragColor = vec4(0.856,0.898,0.881,1.0);
-   
+      gl_FragColor = vec4(1.0,1.0,1.0,0.0);
   }
 `
 
-let coord;
-let velocity;
-let initTime;
-let currentTime;
-let cameraTexture;
-let time = 0;
+let particles;
+let coord,buffer;
 
-let particles =[];
-particles.buffer = gl.createBuffer();
-particles.velocitybuffer = gl.createBuffer();
-
-class Particle{
-  constructor(){
-    this.x = Math.random()*2-1;
-    this.y = Math.random()*2-1;
-    this.angle = Math.random()*2*Math.PI;
-    // this.angle = -1;
-    this.vx = Math.cos(this.angle);
-    this.vy = Math.sin(this.angle);
-  }
-};
-
-
-gl.viewport( 0, 0, canvas.width, canvas.height );
-gl.clearColor(0.0, 0.0, 0.0, 1.0);
 
 window.addEventListener("load",function init(){
   navigator.mediaDevices.getUserMedia({video: {width: {exact: 320}, height: {exact: 240}},audio:false})
     .then(stream=>{
       video.src = URL.createObjectURL(stream);
-      video.addEventListener("canplaythrough",()=>Promise.resolve());
+      video.addEventListener("canplaythrough",setupWebGl);
     })
-    .then(compileShaders)
-    .then(program=>{
-      coord = gl.getAttribLocation(program, "coordinates");
-      gl.enableVertexAttribArray(coord);
-
-      velocity = gl.getAttribLocation(program, "velocity");
-      gl.enableVertexAttribArray(velocity);
-
-      initTime = gl.getUniformLocation(program, "time");
-      gl.uniform1f(initTime,time);
-
-      spawn();
-      requestAnimationFrame(draw);
-    });
 });
 
-  
+function setupWebGl(){
 
+  gl.viewport( 0, 0, canvas.width, canvas.height);
+  gl.clearColor(0.0, 0.0, 0.0, 1.0);
 
-function initTextures() {
-  cameraTexture = gl.createTexture();
-  gl.bindTexture(gl.TEXTURE_2D, cameraTexture);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  let program = compileShaders();
+        
+  coord = gl.getAttribLocation(program, "coordinates");
+  gl.enableVertexAttribArray(coord);
+
+  spawn();
+  requestAnimationFrame(draw);
 }
+  
 
 
 function compileShaders(){
@@ -133,63 +65,83 @@ function compileShaders(){
   gl.linkProgram(program);
   gl.useProgram(program);
 
-  initTextures();
-
-  return Promise.resolve(program);
+  return program;
 }
 
 
 
-
+function randomCoordinate(){
+  return Math.random()*2-1;
+}
 
 function spawn(){
-  for (let a = 0;a<100000;a++){
-    particles[a] = new Particle();
+
+  particles = new Float32Array(psize*4);
+
+  for (let a = 0;a<psize*4;a+=4){
+    particles[a] = randomCoordinate();
+    particles[a+1] = randomCoordinate();
+    particles[a+2] = 0;
+    particles[a+3] = 0;
   }
+  buffer = gl.createBuffer();
 
-  let vrtxdata = [];
-  let veldata = [];
-  for (let a=0;a<particles.length;a++){
-    vrtxdata[a*2]=particles[a].x;
-    vrtxdata[a*2+1]=particles[a].y;
-    veldata[a*2] = particles[a].vx;
-    veldata[a*2+1] = particles[a].vy;
+  gl.bindBuffer(gl.ARRAY_BUFFER,buffer);
+  gl.bufferData(gl.ARRAY_BUFFER,particles,gl.DYNAMIC_DRAW);
+}
+function calc(x,y){ 
+  // if(x <= -1 || x >= 1 || y<=-1 || y>=1)return 0;
+  return 4*(Math.floor((1-y)/2*hidden.height)*hidden.width + Math.floor((1-x)/2*hidden.width));
+}
+function getAvarage(data,c){
+
+  return (data[c] + data[c+1] + data[c+2])/3;
+}
+
+
+const psize = 100000;
+const mapStrength = 0.001;
+const resolution = 0.01;
+function updateParticles(){
+  hidden.drawImage(video,0,0,hidden.width,hidden.height);
+
+  const data = hidden.getImageData(0,0,hidden.width,hidden.height).data;
+  // console.log(data.length);
+  
+  for (var a=0;a<psize*4;a+=4){
+
+    particles[a] += particles[a+2];
+    particles[a+1] += particles[a+3];
+
+    if(particles[a] <= -1 || particles[a] >= 1-resolution || particles[a+1]<=-1 || particles[a+1]>=1-resolution){
+      particles[a] = randomCoordinate();
+      particles[a+1] = randomCoordinate();
+      particles[a+2] = 0;
+      particles[a+3] = 0;
+    }
+    particles[a+2] += mapStrength*getAvarage(data,calc(particles[a]+resolution,particles[a+1]))/255 - mapStrength*getAvarage(data,calc(particles[a],particles[a+1]))/255;
+    particles[a+3] += mapStrength*getAvarage(data,calc(particles[a],particles[a+1]+resolution))/255 - mapStrength*getAvarage(data,calc(particles[a],particles[a+1]))/255;
+
+/*    if (isNaN(particles[a+1]) || isNaN(particles[a+3]) || isNaN(particles[a+2]) || isNaN(particles[a]) || data[calc(particles[a],particles[a+1])+3]!=255) {
+      console.log("a:",a,'x:',particles[a],'y:',particles[a+1]);
+      debugger;
+    }*/
+
+    // particles[a+2] *= 0.99;
+    // particles[a+3] *= 0.99;
   }
-
-  gl.bindBuffer(gl.ARRAY_BUFFER,particles.buffer);
-  gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(vrtxdata),gl.STATIC_DRAW);
-
-  gl.bindBuffer(gl.ARRAY_BUFFER,particles.velocitybuffer);
-  let f32 = new Float32Array(veldata);
-  gl.bufferData(gl.ARRAY_BUFFER,f32,gl.STATIC_DRAW);
 }
 
 function draw(){
-  requestAnimationFrame(draw);
-  // for (let a=0;a<particles.length;a++){
-  //   if (particles[a].x<-1||particles[a].x>1 || particles[a].y<-1 || particles[a].y>1){
-  //     particles[a]= new Particle();
-  //   }
-  // }
-
   if (video.readyState != 4)return;
 
   gl.clear(gl.COLOR_BUFFER_BIT);
+  updateParticles();
+  gl.bindBuffer(gl.ARRAY_BUFFER,buffer);
+  gl.bufferData(gl.ARRAY_BUFFER,particles,gl.DYNAMIC_DRAW);
+  gl.vertexAttribPointer(coord, 2, gl.FLOAT, false, 16, 0);
+  gl.drawArrays(gl.POINTS, 0, psize);
 
-  time +=0.001;
-  gl.uniform1f(initTime,time);
-
-  gl.bindTexture(gl.TEXTURE_2D, cameraTexture);
-  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA,gl.UNSIGNED_BYTE, video);
-
-  
-  gl.bindBuffer(gl.ARRAY_BUFFER,particles.buffer);
-  gl.vertexAttribPointer(coord, 2, gl.FLOAT, false, 0, 0);
-
-  gl.bindBuffer(gl.ARRAY_BUFFER,particles.velocitybuffer);
-  gl.vertexAttribPointer(velocity, 2 , gl.FLOAT, false, 0, 0);
-
-  gl.drawArrays(gl.POINTS, 0, particles.length);
+  requestAnimationFrame(draw);
 };
 
