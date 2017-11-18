@@ -5,7 +5,9 @@ var gl = canvas.getContext('webgl', {premultipliedalpha: false});
 var hidden = canvas2.getContext('2d');
 hidden.width = 320;
 hidden.height = 240;
-canvas.width = innerWidth;
+
+var smaller = innerWidth>innerHeight? innerHeight : innerWidth;
+canvas.width = innerHeight*(320/(240));
 canvas.height = innerHeight;
 
 let srcvertexShader = `
