@@ -36,7 +36,7 @@ let color,life;
 window.addEventListener("load",function init(){
   navigator.mediaDevices.getUserMedia({video: {width: {exact: 320}, height: {exact: 240}},audio:false})
     .then(stream=>{
-      video.src = URL.createObjectURL(stream);
+      video.srcObject = stream;
       video.addEventListener("loadeddata",setupWebGl);
     })
 });
